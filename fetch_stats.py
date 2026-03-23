@@ -768,9 +768,6 @@ def main():
                 logger.info("✅ Saved summary for '%s' to %s", slug, summary_path)
         except Exception as exc:
             logger.error("❌ Failed to process hackathon %s: %s", slug, exc)
-            import traceback
-
-            traceback.print_exc()
 
     # Update the top-level stats.json with basic summary info
     primary = hackathons[0] if hackathons else {}
