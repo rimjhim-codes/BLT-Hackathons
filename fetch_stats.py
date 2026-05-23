@@ -602,8 +602,8 @@ def process_hackathon(hackathon_config, token, org_repos_cache=None):
 
         # Track which PRs we just fetched reviews for, so we don't duplicate them
         newly_fetched_pr_urls = {pr["html_url"] for pr in prs_to_fetch_reviews}
-
-        # Extract reviews from existing leaderboard/paticipants
+        
+        # Extract reviews from existing leaderboard/participants
         seen_review_ids = {r["id"] for r in all_reviews if r.get("id")}
 
         for p in old_participants:
