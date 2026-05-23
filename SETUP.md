@@ -163,7 +163,7 @@ jobs:
 
 Once deployed, share your hackathon dashboard:
 - 📱 Social media
-- 📧 Email newsletters  
+- 📧 Email newsletters
 - 💬 Community forums
 - 📝 Blog posts
 
@@ -198,7 +198,7 @@ Once deployed, share your hackathon dashboard:
 ## Need Help?
 
 - 📖 Read the full [README](README.md)
-- 💬 Check [Discussions](https://github.com/OWASP-BLT/BLT-Hackathon/discussions)
-- 🐛 Report issues on [GitHub Issues](https://github.com/OWASP-BLT/BLT-Hackathon/issues)
+- 💬 Check [Discussions](https://github.com/OWASP-BLT/BLT-Hackathons/discussions)
+- 🐛 Report issues on [GitHub Issues](https://github.com/OWASP-BLT/BLT-Hackathons/issues)
 
 Happy hacking! 🚀

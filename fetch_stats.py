@@ -398,6 +398,35 @@ def process_hackathon_stats(prs, all_reviews, issues, start_dt, end_dt, reposito
             repo_stats[repo_key]["closedIssues"] += 1
             closed_issues += 1
 
+    # Get last 10 PRs (filtered for humans and optionally by allowlist)
+    recent_prs_list = sorted(
+        [
+            pr for pr in prs
+            if not (
+                "[bot]" in pr["user"]["login"] or
+                pr["user"]["login"].lower().endswith("bot") or
+                "copilot" in pr["user"]["login"].lower() or
+                "copilot" in pr.get("title", "").lower()
+            ) and (allowed_participants is None or pr["user"]["login"].lower() in allowed_participants)
+        ],
+        key=lambda x: x["created_at"],
+        reverse=True
+    )[:10]
+
+    recent_prs = [
+        {
+            "title": pr.get("title"),
+            "url": pr.get("html_url"),
+            "username": pr["user"]["login"],
+            "avatar": pr["user"].get("avatar_url"),
+            "state": pr.get("state"),
+            "created_at": pr.get("created_at"),
+            "merged_at": pr.get("merged_at"),
+            "repository": pr.get("repository"),
+        }
+        for pr in recent_prs_list
+    ]
+
     # Build sorted leaderboards
     leaderboard = sorted(
         [p for p in participants.values() if p["mergedCount"] > 0],
@@ -416,6 +445,7 @@ def process_hackathon_stats(prs, all_reviews, issues, start_dt, end_dt, reposito
         "totalIssues": total_issues,
         "closedIssues": closed_issues,
         "participantCount": len(participants),
+        "recentPRs": recent_prs,
         "leaderboard": leaderboard,
         "reviewLeaderboard": review_leaderboard,
         "repoStats": repo_stats,
@@ -426,7 +456,7 @@ def process_hackathon_stats(prs, all_reviews, issues, start_dt, end_dt, reposito
 
 def process_hackathon(hackathon_config, token, org_repos_cache=None):
     """Fetch all data for a single hackathon and return the processed stats.
-    
+
     Args:
         org_repos_cache: Optional dict to cache org repos across hackathons
     """
@@ -445,11 +475,11 @@ def process_hackathon(hackathon_config, token, org_repos_cache=None):
 
     start_dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
     end_dt = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
-    
+
     # Load existing data for incremental review fetching
     existing_data = load_existing_data(slug)
     since = None
-    
+
     if existing_data:
         last_updated = existing_data.get("lastUpdated")
         if last_updated:
@@ -476,7 +506,7 @@ def process_hackathon(hackathon_config, token, org_repos_cache=None):
                     exc,
                 )
                 org_repos = []
-        
+
         if org_repos:
             combined = list({*repositories, *org_repos})
             repositories = combined
@@ -495,7 +525,7 @@ def process_hackathon(hackathon_config, token, org_repos_cache=None):
     # Fetch all PRs across all repositories in parallel
     all_prs = []
     logger.info("Fetching PRs for %d repositories in parallel...", len(repositories))
-    
+
     with ThreadPoolExecutor(max_workers=10) as executor:
         future_to_repo = {}
         for repo_path in repositories:
@@ -517,7 +547,7 @@ def process_hackathon(hackathon_config, token, org_repos_cache=None):
                 logger.error("Failed to fetch PRs for %s: %s", repo_path, exc)
 
     logger.info("Total PRs fetched for %s: %d", name, len(all_prs))
-    
+
     # Determine which PRs need review fetching (only recently updated ones)
     if since:
         prs_to_fetch_reviews = [
@@ -530,10 +560,10 @@ def process_hackathon(hackathon_config, token, org_repos_cache=None):
 
     # Fetch reviews only for updated PRs in parallel
     all_reviews = []
-    
+
     if prs_to_fetch_reviews:
         logger.info("Fetching reviews for %d PRs in parallel...", len(prs_to_fetch_reviews))
-        
+
         def fetch_enriched_reviews(pr):
             repo_path = pr.get("repository", "")
             parts = repo_path.split("/")
@@ -559,7 +589,7 @@ def process_hackathon(hackathon_config, token, org_repos_cache=None):
                 reviews = future.result()
                 if reviews:
                     all_reviews.extend(reviews)
-    
+
         logger.info("Total reviews fetched for %s: %d", name, len(all_reviews))
     else:
         logger.info("No new PRs to fetch reviews for %s", name)
@@ -569,26 +599,26 @@ def process_hackathon(hackathon_config, token, org_repos_cache=None):
         old_reviews = []
         old_participants = existing_data.get("stats", {}).get("leaderboard", []) + \
                           existing_data.get("stats", {}).get("reviewLeaderboard", [])
-        
+
         # Track which PRs we just fetched reviews for, so we don't duplicate them
         newly_fetched_pr_urls = {pr["html_url"] for pr in prs_to_fetch_reviews}
         
         # Extract reviews from existing leaderboard/participants
         seen_review_ids = {r["id"] for r in all_reviews if r.get("id")}
-        
+
         for p in old_participants:
             for r in p.get("reviews", []):
                 review_id = r.get("id")
                 pr_url = r.get("pull_request_url")
-                
+
                 # Skip if we just fetched fresh reviews for this PR
                 if pr_url in newly_fetched_pr_urls:
                     continue
-                    
+
                 # Skip if we somehow already have this review ID
                 if review_id and review_id in seen_review_ids:
                     continue
-                
+
                 # Reconstruct enough of the review object for process_hackathon_stats
                 # We need: user.login, submitted_at, state, id, html_url, pull_request_url, pull_request_title, pull_request_author
                 reconstructed_review = {
@@ -604,14 +634,14 @@ def process_hackathon(hackathon_config, token, org_repos_cache=None):
                 old_reviews.append(reconstructed_review)
                 if review_id:
                     seen_review_ids.add(review_id)
-        
+
         logger.info("Merged %d old reviews from existing data", len(old_reviews))
         all_reviews.extend(old_reviews)
 
     # Fetch all issues across all repositories
     all_issues = []
     logger.info("Fetching issues for %d repositories in parallel...", len(repositories))
-    
+
     with ThreadPoolExecutor(max_workers=10) as executor:
         future_to_repo_issues = {}
         for repo_path in repositories:
@@ -636,7 +666,7 @@ def process_hackathon(hackathon_config, token, org_repos_cache=None):
     # Fetch repository metadata in parallel
     repo_data = []
     logger.info("Fetching repository metadata in parallel...")
-    
+
     with ThreadPoolExecutor(max_workers=10) as executor:
         future_to_repo_meta = {}
         for repo_path in repositories:
@@ -694,6 +724,7 @@ def build_summary(data):
         "totalIssues": stats.get("totalIssues", 0),
         "repositories": len(data.get("repositories", [])),
         "topContributors": top_contributors,
+        "recentPRs": stats.get("recentPRs", []),
     }
 
 
@@ -722,7 +753,7 @@ def main():
 
     # Create output directory
     os.makedirs("hackathon-data", exist_ok=True)
-    
+
     # Cache for org repos to avoid fetching multiple times
     org_repos_cache = {}
 
@@ -731,7 +762,7 @@ def main():
         name = hackathon.get("name", slug)
         start_time = hackathon.get("startTime")
         end_time = hackathon.get("endTime")
-        
+
         # Skip ended hackathons (optimization!)
         if not is_hackathon_active(start_time, end_time):
             logger.info("⏭️  Skipping ended hackathon: %s (ended on %s)", name, end_time)
@@ -752,7 +783,7 @@ def main():
                     except Exception as exc:
                         logger.warning("Could not generate summary for %s: %s", slug, exc)
                 continue
-        
+
         logger.info("🔄 Processing active hackathon: %s", name)
         try:
             data = process_hackathon(hackathon, token, org_repos_cache)
@@ -767,10 +798,7 @@ def main():
                     json.dump(build_summary(data), f, indent=2)
                 logger.info("✅ Saved summary for '%s' to %s", slug, summary_path)
         except Exception as exc:
-            logger.error("❌ Failed to process hackathon %s: %s", slug, exc)
-            import traceback
-
-            traceback.print_exc()
+            logger.exception("❌ Failed to process hackathon %s: %s", slug, exc)
 
     # Update the top-level stats.json with basic summary info
     primary = hackathons[0] if hackathons else {}
